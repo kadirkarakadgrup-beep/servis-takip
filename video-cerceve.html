@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Çerçeveli Video Yapıcı</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#1b0814;--card:#2e1022;--gold:#d9b26f;--lt:#f1dce6;--dk:#2a0c1d}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:#fff;font-family:Poppins,'Segoe UI',Arial,sans-serif;padding:16px;max-width:620px;margin-inline:auto}
+h1{font-size:22px;margin:4px 0 14px;color:var(--gold)}
+.card{background:var(--card);border-radius:18px;padding:16px;margin-bottom:14px}
+label{display:block;font-size:13px;color:var(--lt);margin:12px 0 5px}
+input[type=text],select{width:100%;background:#fff;color:var(--dk);border:0;border-radius:12px;padding:11px 12px;font:500 16px Poppins,Arial,sans-serif}
+button{font:700 16px Poppins,Arial,sans-serif;border:0;border-radius:14px;padding:14px 16px;cursor:pointer;width:100%}
+button:disabled{opacity:.5}
+.main{background:var(--gold);color:var(--dk)}
+.alt{background:transparent;color:#fff;border:2px solid var(--gold)}
+.row{display:flex;gap:10px}.row>*{flex:1}
+.pick{display:block;text-align:center;background:var(--gold);color:var(--dk);border-radius:14px;padding:16px;font-weight:700;cursor:pointer}
+.pick input{display:none}
+.hint{font-size:13px;color:var(--lt);opacity:.9;margin-top:8px;min-height:18px}
+canvas,video{display:block;margin:12px auto 0;width:62%;max-width:300px;border-radius:14px;background:#000}
+</style>
+</head>
+<body>
+<h1>Çerçeveli video yapıcı</h1>
+
+<div class="card">
+  <label class="pick" for="file" style="margin:0">🎞️ Günlük videoyu seç<input id="file" type="file" accept="video/*"></label>
+  <div class="hint" id="fileInfo">Henüz video seçilmedi.</div>
+
+  <label>Sayfa adı</label>
+  <input id="handle" type="text" value="vegittikadin">
+  <label>Videonun sonunda söylenecek cümle</label>
+  <input id="spoken" type="text" value="Ve gitti kadın sayfamızı takip edin.">
+  <div class="hint">Yapay zeka adı yanlış okursa burada okunduğu gibi yaz (örn. "Ve gitti kadın").</div>
+  <label>Çerçeve rengi</label>
+  <select id="theme">
+    <option value="bordo">Bordo ve altın</option>
+    <option value="pembe">Pembe</option>
+    <option value="siyah">Siyah ve altın</option>
+    <option value="mor">Mor</option>
+  </select>
+  <label>Video yerleşimi</label>
+  <select id="fitmode">
+    <option value="cover">Çerçeveyi doldur (kenarları kırpar)</option>
+    <option value="contain">Tamamını göster (yanlarda boşluk kalır)</option>
+  </select>
+  <label>Kadın sesi</label>
+  <select id="voiceName">
+    <option value="Kore">Kore – net ve kararlı</option>
+    <option value="Aoede">Aoede – hafif ve rahat</option>
+    <option value="Leda">Leda – genç</option>
+    <option value="Zephyr">Zephyr – parlak</option>
+  </select>
+  <div style="height:14px"></div>
+  <button class="main" id="go">🎬 Çerçeveli videoyu yap</button>
+  <div class="hint" id="info">Video, kendi süresi kadar sürede kaydedilir. Bu sırada ekranı kapatma ve sayfadan çıkma.</div>
+  <canvas id="vc" width="1080" height="1920"></canvas>
+  <video id="rv" controls playsinline style="display:none"></video>
+  <div class="row" id="btns" style="display:none;margin-top:12px">
+    <button class="main" id="dl">Videoyu indir</button>
+    <button class="alt" id="sh">Paylaş</button>
+  </div>
+</div>
+
+<script>
+const W=1080,H=1920;
+const $=id=>document.getElementById(id);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const timeout=ms=>new Promise((_,rej)=>setTimeout(()=>rej(new Error('Zaman aşımı: yanıt gelmedi')),ms));
+const font=(w,s)=>`${w} ${Math.round(s)}px Poppins,'Segoe UI',Arial,sans-serif`;
+const THEMES={
+  bordo:{a:'#4a1230',b:'#16040f',acc:'#d9b26f',txt:'#ffffff',soft:'#f1dce6'},
+  pembe:{a:'#d24a86',b:'#7a1f4b',acc:'#ffe3ef',txt:'#ffffff',soft:'#ffe3ef'},
+  siyah:{a:'#1c1c1c',b:'#000000',acc:'#d4af37',txt:'#ffffff',soft:'#e9e2c8'},
+  mor:{a:'#5b2a86',b:'#21093a',acc:'#f0c9ff',txt:'#ffffff',soft:'#eadcf7'}
+};
+if(!CanvasRenderingContext2D.prototype.roundRect){
+  CanvasRenderingContext2D.prototype.roundRect=function(x,y,w,h,r){r=Math.min(r,w/2,h/2);this.moveTo(x+r,y);this.arcTo(x+w,y,x+w,y+h,r);this.arcTo(x+w,y+h,x,y+h,r);this.arcTo(x,y+h,x,y,r);this.arcTo(x,y,x+w,y,r);this.closePath();};
+}
+const fontsReady=()=>document.fonts?Promise.all([document.fonts.load('700 40px Poppins','İŞĞÇÖÜığşçöü'),document.fonts.load('500 40px Poppins','İŞĞÇÖÜığşçöü')]).catch(()=>{}):Promise.resolve();
+function fit(ctx,text,weight,size,maxW){let s=size;ctx.font=font(weight,s);while(s>20&&ctx.measureText(text).width>maxW){s-=2;ctx.font=font(weight,s);}return s;}
+
+// ---------- ayarları hatırla ----------
+const store={get:k=>{try{return localStorage.getItem(k)||''}catch(e){return ''}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+['handle','spoken','theme','fitmode','voiceName'].forEach(id=>{
+  const v=store.get('vgk_'+id); if(v) $(id).value=v;
+  $(id).addEventListener('change',()=>store.set('vgk_'+id,$(id).value.trim()));
+});
+
+// ---------- çizim ----------
+const BX=60,BY=270,BW=960,BH=1320;
+function drawBase(vx,th,handle){
+  const g=vx.createLinearGradient(0,0,0,H); g.addColorStop(0,th.a); g.addColorStop(1,th.b);
+  vx.fillStyle=g; vx.fillRect(0,0,W,H);
+  vx.textAlign='center'; vx.textBaseline='middle';
+  const label='@'+handle;
+  vx.fillStyle=th.acc; const fs=fit(vx,label,700,76,900); vx.font=font(700,fs); vx.fillText(label,W/2,150);
+  vx.fillStyle=th.soft; vx.font=font(500,30); vx.fillText('Takip et  •  Her gün yeni video',W/2,1690);
+}
+function drawVideo(vx,th,vid,mode){
+  vx.save(); vx.beginPath(); vx.roundRect(BX,BY,BW,BH,44); vx.clip();
+  vx.fillStyle='#000'; vx.fillRect(BX,BY,BW,BH);
+  const vw=vid.videoWidth,vh=vid.videoHeight;
+  if(vw&&vh){
+    const sc=mode==='cover'?Math.max(BW/vw,BH/vh):Math.min(BW/vw,BH/vh);
+    const dw=vw*sc,dh=vh*sc; vx.drawImage(vid,BX+(BW-dw)/2,BY+(BH-dh)/2,dw,dh);
+  }
+  vx.restore();
+  vx.strokeStyle=th.acc; vx.lineWidth=10; vx.beginPath(); vx.roundRect(BX,BY,BW,BH,44); vx.stroke();
+}
+function drawOutro(vx,th,handle,a,dy){
+  vx.save(); vx.globalAlpha=a; vx.textAlign='center'; vx.textBaseline='middle';
+  vx.strokeStyle=th.acc; vx.lineWidth=6; vx.beginPath(); vx.arc(W/2,760+dy,360,0,7); vx.stroke();
+  vx.fillStyle=th.txt; const label='@'+handle; const fs=fit(vx,label,700,110,620); vx.font=font(700,fs); vx.fillText(label,W/2,760+dy);
+  vx.fillStyle=th.acc; vx.beginPath(); vx.roundRect(280,1230+dy,520,110,55); vx.fill();
+  vx.fillStyle=th.a; vx.font=font(700,46); vx.fillText('TAKİP ET',W/2,1286+dy);
+  vx.fillStyle=th.soft; vx.font=font(500,36); vx.fillText('Her gün yeni video',W/2,1430+dy);
+  vx.restore();
+}
+
+// ---------- yapay zeka kadın sesi (Mola Takip SKT ile aynı Firebase bağlantısı) ----------
+const AICFG={apiKey:'AIzaSyDVZbP_LYbYVtmDPIR3mfQqEYs20QBLylU',authDomain:'bar-skt-takip.firebaseapp.com',projectId:'bar-skt-takip',storageBucket:'bar-skt-takip.firebasestorage.app',messagingSenderId:'667981178516',appId:'1:667981178516:web:3618e7e73f31e924d33681'};
+const TTS_MODELS=['gemini-3.1-flash-tts-preview','gemini-2.5-flash-preview-tts'];
+let AI_I=null,AI_ai=null;
+async function getAI(){
+  if(AI_ai) return;
+  const u=n=>'https://www.gstatic.com/firebasejs/11.10.0/firebase-'+n+'.js';
+  const m=await Promise.all([import(u('app')),import(u('app-check')),import(u('ai'))]),A=m[0],C=m[1],I=m[2];
+  self.FIREBASE_APPCHECK_DEBUG_TOKEN='62c27f1e-0f60-48b7-b076-902db9c50634';
+  const app=A.initializeApp(AICFG,'vgk-ai');
+  C.initializeAppCheck(app,{provider:new C.ReCaptchaEnterpriseProvider('debug-only'),isTokenAutoRefreshEnabled:true});
+  AI_ai=I.getAI(app,{backend:new I.GoogleAIBackend()}); AI_I=I;
+}
+const ttsCache=new Map();
+async function ttsSeg(text,voice,onRetry){
+  const key=voice+'|'+text; if(ttsCache.has(key)) return ttsCache.get(key);
+  await getAI();
+  let last;
+  for(let round=0;round<3;round++){
+    for(const mn of TTS_MODELS){
+      try{
+        const model=AI_I.getGenerativeModel(AI_ai,{model:mn,generationConfig:{responseModalities:[AI_I.ResponseModality.AUDIO],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:voice}}}}});
+        const r=await Promise.race([model.generateContent('Sıcak, net ve doğal bir kadın sesiyle, orta hızda söyle: '+text),timeout(60000)]);
+        const p=(r.response.inlineDataParts()||[])[0];
+        if(!p) throw new Error('Ses gelmedi');
+        const rate=+((/rate=(\d+)/.exec(p.inlineData.mimeType||'')||[])[1])||24000;
+        const bin=atob(p.inlineData.data),n=bin.length>>1,f=new Float32Array(n);
+        for(let i=0;i<n;i++){let v=bin.charCodeAt(2*i)|(bin.charCodeAt(2*i+1)<<8);if(v>=32768)v-=65536;f[i]=v/32768;}
+        const out={f,rate}; ttsCache.set(key,out); return out;
+      }catch(e){last=e;}
+    }
+    if(round<2){ if(onRetry) onRetry(); await sleep(2500); }
+  }
+  throw last;
+}
+
+// ---------- video seçimi ----------
+let srcFile=null;
+$('file').addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f) return;
+  srcFile=f;
+  $('fileInfo').textContent='Seçildi: '+f.name+' ('+(f.size/1048576).toFixed(1)+' MB)';
+});
+
+function pickMime(){
+  if(!window.MediaRecorder) return '';
+  return ['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'].find(m=>MediaRecorder.isTypeSupported(m))||'';
+}
+
+let outBlob=null,outExt='mp4';
+async function run(){
+  const info=$('info'),btn=$('go');
+  if(!srcFile){info.textContent='Önce bir video seç.';return;}
+  btn.disabled=true;
+  let ac,wl,url;
+  try{
+    await fontsReady();
+    const handle=($('handle').value.trim()||'vegittikadin').replace(/^@/,'');
+    const spoken=$('spoken').value.trim();
+    const th=THEMES[$('theme').value]||THEMES.bordo, mode=$('fitmode').value;
+
+    let tts=null;
+    if(spoken){
+      info.textContent='⏳ Kadın sesi hazırlanıyor…';
+      tts=await ttsSeg(spoken,$('voiceName').value,()=>{info.textContent='⏳ Yapay zeka yoğun, tekrar deniyorum…';});
+    }
+
+    url=URL.createObjectURL(srcFile);
+    const vid=document.createElement('video');
+    vid.playsInline=true; vid.preload='auto'; vid.src=url;
+    await new Promise((res,rej)=>{vid.onloadedmetadata=res;vid.onerror=()=>rej(new Error('Video açılamadı'));});
+    const dur=vid.duration||0;
+
+    ac=new (window.AudioContext||window.webkitAudioContext)(); await ac.resume();
+    const dest=ac.createMediaStreamDestination();
+    const srcNode=ac.createMediaElementSource(vid); srcNode.connect(dest);
+
+    const vc=$('vc'),vx=vc.getContext('2d');
+    $('rv').style.display='none'; vc.style.display='block'; $('btns').style.display='none';
+    const mime=pickMime();
+    const stream=new MediaStream([...vc.captureStream(30).getVideoTracks(),...dest.stream.getAudioTracks()]);
+    const rec=new MediaRecorder(stream,mime?{mimeType:mime,videoBitsPerSecond:6000000}:{});
+    const chunks=[]; rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
+    const stopped=new Promise(r=>{rec.onstop=r;});
+    try{ if(navigator.wakeLock) wl=await navigator.wakeLock.request('screen'); }catch(e){}
+
+    const frameVideo=()=>{drawBase(vx,th,handle);drawVideo(vx,th,vid,mode);};
+    frameVideo();
+    rec.start(250);
+    let ended=false; vid.onended=()=>{ended=true;};
+    await vid.play();
+
+    // 1) video bölümü
+    await new Promise(res=>{
+      const loop=()=>{
+        frameVideo();
+        const el=vid.currentTime;
+        info.textContent='🎬 Video kaydediliyor… %'+Math.min(100,Math.round(el/(dur||1)*100));
+        if(ended||vid.ended||(dur&&el>=dur-0.05)){res();return;}
+        setTimeout(loop,33);
+      };
+      loop();
+    });
+
+    // 2) kapanış: takip et
+    info.textContent='🎬 Kapanış ekleniyor…';
+    const t0=ac.currentTime, aStart=0.45;
+    let outroLen=3.2;
+    if(tts){
+      const ab=ac.createBuffer(1,tts.f.length,tts.rate); ab.copyToChannel(tts.f,0);
+      const s=ac.createBufferSource(); s.buffer=ab; s.connect(dest); s.start(t0+aStart);
+      outroLen=Math.max(3.2,aStart+tts.f.length/tts.rate+1.3);
+    }
+    await new Promise(res=>{
+      const loop=()=>{
+        const el=ac.currentTime-t0;
+        const oa=Math.min(1,Math.max(0,el/0.45));
+        drawBase(vx,th,handle);
+        vx.save(); vx.globalAlpha=1-oa; drawVideo(vx,th,vid,mode); vx.restore();
+        drawOutro(vx,th,handle,oa,(1-oa)*30);
+        if(el>=outroLen){res();return;}
+        setTimeout(loop,33);
+      };
+      loop();
+    });
+
+    rec.stop(); await stopped;
+    const type=(rec.mimeType||mime||'video/webm').split(';')[0];
+    outExt=type.indexOf('mp4')>-1?'mp4':'webm';
+    outBlob=new Blob(chunks,{type});
+    const rv=$('rv'); rv.src=URL.createObjectURL(outBlob);
+    rv.style.display='block'; vc.style.display='none'; $('btns').style.display='flex';
+    info.textContent=outExt==='mp4'
+      ?'✅ Video hazır. İndirip Instagram\'da paylaşabilirsin.'
+      :'✅ Video hazır (webm). Instagram webm\'i kabul etmezse videoyu CapCut veya InShot ile açıp mp4 olarak kaydet.';
+  }catch(err){
+    info.textContent='Video yapılamadı: '+(err.message||err.code||err);
+  }finally{
+    btn.disabled=false;
+    try{ if(ac) ac.close(); }catch(e){}
+    try{ if(wl) wl.release(); }catch(e){}
+    try{ if(url) URL.revokeObjectURL(url); }catch(e){}
+  }
+}
+$('go').onclick=run;
+$('dl').onclick=()=>{if(!outBlob)return;const a=document.createElement('a');a.href=URL.createObjectURL(outBlob);a.download='cerceveli-video-'+Date.now()+'.'+outExt;a.click();};
+$('sh').onclick=async()=>{
+  if(!outBlob)return;
+  const f=new File([outBlob],'cerceveli-video.'+outExt,{type:outBlob.type});
+  if(navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f]});}catch(e){}}
+  else $('dl').click();
+};
+
+// ilk görünüm
+fontsReady().then(()=>{
+  const vx=$('vc').getContext('2d'),th=THEMES[$('theme').value]||THEMES.bordo;
+  drawBase(vx,th,($('handle').value.trim()||'vegittikadin').replace(/^@/,''));
+  vx.save(); vx.beginPath(); vx.roundRect(BX,BY,BW,BH,44); vx.fillStyle='#000'; vx.fill(); vx.restore();
+  vx.strokeStyle=th.acc; vx.lineWidth=10; vx.beginPath(); vx.roundRect(BX,BY,BW,BH,44); vx.stroke();
+});
+</script>
+</body>
+</html>
