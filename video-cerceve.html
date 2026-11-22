@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Çerçeveli Video Yapıcı</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#1b0814;--card:#2e1022;--gold:#d9b26f;--lt:#f1dce6;--dk:#2a0c1d}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:#fff;font-family:Poppins,'Segoe UI',Arial,sans-serif;padding:16px;max-width:620px;margin-inline:auto}
+h1{font-size:22px;margin:4px 0 14px;color:var(--gold)}
+.card{background:var(--card);border-radius:18px;padding:16px;margin-bottom:14px}
+label{display:block;font-size:13px;color:var(--lt);margin:12px 0 5px}
+input[type=text],select{width:100%;background:#fff;color:var(--dk);border:0;border-radius:12px;padding:11px 12px;font:500 16px Poppins,Arial,sans-serif}
+button{font:700 16px Poppins,Arial,sans-serif;border:0;border-radius:14px;padding:14px 16px;cursor:pointer;width:100%}
+button:disabled{opacity:.5}
+.main{background:var(--gold);color:var(--dk)}
+.alt{background:transparent;color:#fff;border:2px solid var(--gold)}
+.row{display:flex;gap:10px}.row>*{flex:1}
+.pick{display:block;text-align:center;background:var(--gold);color:var(--dk);border-radius:14px;padding:16px;font-weight:700;cursor:pointer}
+.pick input{display:none}
+.hint{font-size:13px;color:var(--lt);opacity:.9;margin-top:8px;min-height:18px}
+canvas,video{display:block;margin:12px auto 0;width:62%;max-width:300px;border-radius:14px;background:#000}
+</style>
+</head>
+<body>
+<h1>Çerçeveli video yapıcı <small style="font-size:12px;color:#f1dce6;opacity:.7">sürüm 5 · süre düzeltmeli</small></h1>
+
+<div class="card">
+  <label class="pick" for="file" style="margin:0">🎞️ Günlük videoyu seç<input id="file" type="file" accept="video/*"></label>
+  <div class="hint" id="fileInfo">Henüz video seçilmedi.</div>
+
+  <label>Sayfa adı</label>
+  <input id="handle" type="text" value="vegittikadin">
+  <label>Videonun sonunda söylenecek cümle</label>
+  <input id="spoken" type="text" value="En güncel videolar için Ve gitti kadın sayfamızı takip edin.">
+  <div class="hint">Yapay zeka adı yanlış okursa burada okunduğu gibi yaz (örn. "Ve gitti kadın").</div>
+  <label>Çerçeve rengi</label>
+  <select id="theme">
+    <option value="bordo">Bordo ve altın</option>
+    <option value="pembe">Pembe</option>
+    <option value="siyah">Siyah ve altın</option>
+    <option value="mor">Mor</option>
+  </select>
+  <label>Video yerleşimi</label>
+  <select id="fitmode">
+    <option value="cover">Çerçeveyi doldur (kenarları kırpar)</option>
+    <option value="contain">Tamamını göster (yanlarda boşluk kalır)</option>
+  </select>
+  <label>Kadın sesi</label>
+  <select id="voiceName">
+    <option value="Kore">Kore – net ve kararlı</option>
+    <option value="Aoede">Aoede – hafif ve rahat</option>
+    <option value="Leda">Leda – genç</option>
+    <option value="Zephyr">Zephyr – parlak</option>
+  </select>
+  <div style="height:14px"></div>
+  <button class="main" id="go">🎬 Çerçeveli videoyu yap</button>
+  <div class="hint" id="info">Video, kendi süresi kadar sürede kaydedilir. Bu sırada ekranı kapatma ve sayfadan çıkma.</div>
+  <canvas id="vc" width="1080" height="1920"></canvas>
+  <video id="rv" controls playsinline style="display:none"></video>
+  <div class="row" id="btns" style="display:none;margin-top:12px">
+    <button class="main" id="dl">Videoyu indir</button>
+    <button class="alt" id="sh">Paylaş</button>
+  </div>
+</div>
+
+<div class="card">
+  <label style="margin-top:0">Instagram açıklaması</label>
+  <input id="note" type="text" placeholder="Video hakkında kısa not (isteğe bağlı)">
+  <div class="hint">Yapay zeka videodaki alt yazıları okuyup açıklamayı onlardan esinleyerek yazar. Sesi duyamaz. Notta konuyu yazarsan daha isabetli olur.</div>
+  <div style="height:10px"></div>
+  <textarea id="caption" style="width:100%;min-height:210px;background:#fff;color:var(--dk);border:0;border-radius:12px;padding:11px 12px;font:500 16px Poppins,Arial,sans-serif;line-height:1.45;resize:vertical"></textarea>
+  <div class="hint" id="capInfo"></div>
+  <div class="row" style="margin-top:10px">
+    <button class="main" id="capBtn">✍️ Açıklamayı yaz</button>
+    <button class="alt" id="capCopy">Kopyala</button>
+  </div>
+</div>
+
+<script>
+const W=1080,H=1920;
+const $=id=>document.getElementById(id);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const timeout=ms=>new Promise((_,rej)=>setTimeout(()=>rej(new Error('Zaman aşımı: yanıt gelmedi')),ms));
+const font=(w,s)=>`${w} ${Math.round(s)}px Poppins,'Segoe UI',Arial,sans-serif`;
+const THEMES={
+  bordo:{a:'#4a1230',b:'#16040f',acc:'#d9b26f',txt:'#ffffff',soft:'#f1dce6'},
+  pembe:{a:'#d24a86',b:'#7a1f4b',acc:'#ffe3ef',txt:'#ffffff',soft:'#ffe3ef'},
+  siyah:{a:'#1c1c1c',b:'#000000',acc:'#d4af37',txt:'#ffffff',soft:'#e9e2c8'},
+  mor:{a:'#5b2a86',b:'#21093a',acc:'#f0c9ff',txt:'#ffffff',soft:'#eadcf7'}
+};
+if(!CanvasRenderingContext2D.prototype.roundRect){
+  CanvasRenderingContext2D.prototype.roundRect=function(x,y,w,h,r){r=Math.min(r,w/2,h/2);this.moveTo(x+r,y);this.arcTo(x+w,y,x+w,y+h,r);this.arcTo(x+w,y+h,x,y+h,r);this.arcTo(x,y+h,x,y,r);this.arcTo(x,y,x+w,y,r);this.closePath();};
+}
+const fontsReady=()=>document.fonts?Promise.all([document.fonts.load('700 40px Poppins','İŞĞÇÖÜığşçöü'),document.fonts.load('500 40px Poppins','İŞĞÇÖÜığşçöü')]).catch(()=>{}):Promise.resolve();
+function fit(ctx,text,weight,size,maxW){let s=size;ctx.font=font(weight,s);while(s>20&&ctx.measureText(text).width>maxW){s-=2;ctx.font=font(weight,s);}return s;}
+
+// ---------- ayarları hatırla ----------
+const store={get:k=>{try{return localStorage.getItem(k)||''}catch(e){return ''}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+['handle','spoken','theme','fitmode','voiceName'].forEach(id=>{
+  const sk=id==='spoken'?'vgk_spoken_v2':'vgk_'+id;
+  const v=store.get(sk); if(v) $(id).value=v;
+  $(id).addEventListener('change',()=>store.set(sk,$(id).value.trim()));
+});
+
+// ---------- çizim ----------
+// Çerçeve Reels'in tamamını kaplar: video tam ekran, etrafında parlayan altın çerçeve, içinde "Takip et" yazısı.
+const INS=22,RAD=64,PILL_Y=1520;
+function drawBase(vx,th){
+  const g=vx.createLinearGradient(0,0,0,H); g.addColorStop(0,th.a); g.addColorStop(1,th.b);
+  vx.fillStyle=g; vx.fillRect(0,0,W,H);
+}
+function drawVideo(vx,vid,mode){
+  vx.save(); vx.beginPath(); vx.roundRect(INS,INS,W-2*INS,H-2*INS,RAD); vx.clip();
+  const vw=vid.videoWidth,vh=vid.videoHeight;
+  if(mode==='cover'){vx.fillStyle='#000';vx.fillRect(0,0,W,H);}
+  if(vw&&vh){
+    const sc=mode==='cover'?Math.max(W/vw,H/vh):Math.min(W/vw,H/vh);
+    const dw=vw*sc,dh=vh*sc; vx.drawImage(vid,(W-dw)/2,(H-dh)/2,dw,dh);
+  }
+  vx.restore();
+}
+function drawPill(vx,handle){
+  const label='Takip et  –  @'+handle;
+  vx.save(); vx.textAlign='center'; vx.textBaseline='middle';
+  const fs=fit(vx,label,700,46,780); vx.font=font(700,fs);
+  const w=Math.min(920,vx.measureText(label).width+100), h=98;
+  vx.fillStyle='rgba(18,4,10,0.58)'; vx.beginPath(); vx.roundRect((W-w)/2,PILL_Y-h/2,w,h,h/2); vx.fill();
+  vx.strokeStyle='#e9c46a'; vx.lineWidth=3; vx.stroke();
+  vx.fillStyle='#f6dd94'; vx.fillText(label,W/2,PILL_Y+2);
+  vx.restore();
+}
+function drawGold(vx,t){
+  const x=INS,y=INS,w=W-2*INS,h=H-2*INS;
+  const pulse=0.5+0.5*Math.sin(t*2.4), ph=(t*0.28)%1;
+  const L=Math.hypot(W,H)*0.9;
+  const sx=-W+ph*2*W, sy=-H+ph*2*H;
+  const g=vx.createLinearGradient(sx,sy,sx+L*0.55,sy+L*0.83);
+  g.addColorStop(0,'#c0912c'); g.addColorStop(0.3,'#e3b84f'); g.addColorStop(0.46,'#f7e08e');
+  g.addColorStop(0.5,'#fffbe0'); g.addColorStop(0.54,'#f7e08e'); g.addColorStop(0.7,'#e3b84f'); g.addColorStop(1,'#c0912c');
+  vx.save();
+  vx.shadowColor='rgba(255,208,100,0.95)'; vx.shadowBlur=26+22*pulse;
+  vx.strokeStyle=g; vx.lineWidth=13; vx.beginPath(); vx.roundRect(x,y,w,h,RAD); vx.stroke();
+  vx.shadowBlur=0; vx.globalAlpha=0.55; vx.strokeStyle='#ffe9a8'; vx.lineWidth=2.5;
+  vx.beginPath(); vx.roundRect(x+17,y+17,w-34,h-34,RAD-12); vx.stroke();
+  vx.restore();
+}
+function drawOutro(vx,th,handle,a,dy){
+  vx.save(); vx.globalAlpha=a; vx.textAlign='center'; vx.textBaseline='middle';
+  vx.strokeStyle=th.acc; vx.lineWidth=6; vx.beginPath(); vx.arc(W/2,760+dy,360,0,7); vx.stroke();
+  vx.fillStyle=th.txt; const label='@'+handle; const fs=fit(vx,label,700,110,620); vx.font=font(700,fs); vx.fillText(label,W/2,760+dy);
+  vx.fillStyle=th.acc; vx.beginPath(); vx.roundRect(280,1230+dy,520,110,55); vx.fill();
+  vx.fillStyle=th.a; vx.font=font(700,46); vx.fillText('TAKİP ET',W/2,1286+dy);
+  vx.fillStyle=th.soft; vx.font=font(500,36); vx.fillText('En güncel videolar için',W/2,1430+dy);
+  vx.restore();
+}
+
+// ---------- yapay zeka kadın sesi (Mola Takip SKT ile aynı Firebase bağlantısı) ----------
+const AICFG={apiKey:'AIzaSyDVZbP_LYbYVtmDPIR3mfQqEYs20QBLylU',authDomain:'bar-skt-takip.firebaseapp.com',projectId:'bar-skt-takip',storageBucket:'bar-skt-takip.firebasestorage.app',messagingSenderId:'667981178516',appId:'1:667981178516:web:3618e7e73f31e924d33681'};
+const TTS_MODELS=['gemini-3.1-flash-tts-preview','gemini-2.5-flash-preview-tts'];
+let AI_I=null,AI_ai=null;
+async function getAI(){
+  if(AI_ai) return;
+  const u=n=>'https://www.gstatic.com/firebasejs/11.10.0/firebase-'+n+'.js';
+  const m=await Promise.all([import(u('app')),import(u('app-check')),import(u('ai'))]),A=m[0],C=m[1],I=m[2];
+  self.FIREBASE_APPCHECK_DEBUG_TOKEN='62c27f1e-0f60-48b7-b076-902db9c50634';
+  const app=A.initializeApp(AICFG,'vgk-ai');
+  C.initializeAppCheck(app,{provider:new C.ReCaptchaEnterpriseProvider('debug-only'),isTokenAutoRefreshEnabled:true});
+  AI_ai=I.getAI(app,{backend:new I.GoogleAIBackend()}); AI_I=I;
+}
+const ttsCache=new Map();
+async function ttsSeg(text,voice,onRetry){
+  const key=voice+'|'+text; if(ttsCache.has(key)) return ttsCache.get(key);
+  await getAI();
+  let last;
+  for(let round=0;round<3;round++){
+    for(const mn of TTS_MODELS){
+      try{
+        const model=AI_I.getGenerativeModel(AI_ai,{model:mn,generationConfig:{responseModalities:[AI_I.ResponseModality.AUDIO],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:voice}}}}});
+        const r=await Promise.race([model.generateContent('Sıcak, net ve doğal bir kadın sesiyle, orta hızda söyle: '+text),timeout(60000)]);
+        const p=(r.response.inlineDataParts()||[])[0];
+        if(!p) throw new Error('Ses gelmedi');
+        const rate=+((/rate=(\d+)/.exec(p.inlineData.mimeType||'')||[])[1])||24000;
+        const bin=atob(p.inlineData.data),n=bin.length>>1,f=new Float32Array(n);
+        for(let i=0;i<n;i++){let v=bin.charCodeAt(2*i)|(bin.charCodeAt(2*i+1)<<8);if(v>=32768)v-=65536;f[i]=v/32768;}
+        const out={f,rate}; ttsCache.set(key,out); return out;
+      }catch(e){last=e;}
+    }
+    if(round<2){ if(onRetry) onRetry(); await sleep(2500); }
+  }
+  throw last;
+}
+
+// ---------- video seçimi ----------
+let srcFile=null;
+$('file').addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f) return;
+  srcFile=f;
+  $('fileInfo').textContent='Seçildi: '+f.name+' ('+(f.size/1048576).toFixed(1)+' MB)';
+  writeCaption();
+});
+
+function pickMime(){
+  if(!window.MediaRecorder) return '';
+  return ['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'].find(m=>MediaRecorder.isTypeSupported(m))||'';
+}
+
+// ---------- MP4 süre düzeltici ----------
+// Parçalı (fragmented) MP4'ü normal MP4'e çevirir: süre bilgisi, örnek tabloları ve moov doğru yazılır.
+// Videoyu yeniden kodlamaz, sadece kapsayıcıyı düzeltir. Başarısız olursa null döner.
+function fmp4ToMp4(buf){
+  const u8=new Uint8Array(buf), dv=new DataView(buf);
+  const str=o=>String.fromCharCode(u8[o],u8[o+1],u8[o+2],u8[o+3]);
+  function boxes(s,e){
+    const r=[];
+    while(s+8<=e){
+      let sz=dv.getUint32(s),h=8;
+      if(sz===1){sz=Number(dv.getBigUint64(s+8));h=16;}else if(sz===0){sz=e-s;}
+      if(sz<h||s+sz>e) break;
+      r.push({t:str(s+4),s:s,e:s+sz,b:s+h});
+      s+=sz;
+    }
+    return r;
+  }
+  const w32=(a,o,v)=>{new DataView(a.buffer,a.byteOffset,a.byteLength).setUint32(o,v>>>0);};
+  const w64=(a,o,v)=>{new DataView(a.buffer,a.byteOffset,a.byteLength).setBigUint64(o,BigInt(Math.round(v)));};
+  function mk(type,parts){
+    let len=8; parts.forEach(p=>{len+=p.length;});
+    const o=new Uint8Array(len); w32(o,0,len);
+    for(let i=0;i<4;i++) o[4+i]=type.charCodeAt(i);
+    let p=8; parts.forEach(x=>{o.set(x,p);p+=x.length;});
+    return o;
+  }
+  const u32=n=>{const a=new Uint8Array(4);w32(a,0,n);return a;};
+
+  const top=boxes(0,u8.length);
+  const moov=top.find(x=>x.t==='moov');
+  if(!moov||!top.some(x=>x.t==='moof')) return null;
+
+  // varsayılanlar
+  const trex={};
+  const mvex=boxes(moov.b,moov.e).find(x=>x.t==='mvex');
+  if(mvex) boxes(mvex.b,mvex.e).filter(x=>x.t==='trex').forEach(x=>{
+    trex[dv.getUint32(x.b+4)]={dur:dv.getUint32(x.b+12),size:dv.getUint32(x.b+16),flags:dv.getUint32(x.b+20)};
+  });
+
+  // izler
+  const tracks={}, order=[];
+  boxes(moov.b,moov.e).filter(x=>x.t==='trak').forEach(tr=>{
+    const kids=boxes(tr.b,tr.e);
+    const tkhd=kids.find(x=>x.t==='tkhd'), mdia=kids.find(x=>x.t==='mdia');
+    if(!tkhd||!mdia) return;
+    const id=dv.getUint32(tkhd.b+(u8[tkhd.b]===1?20:12));
+    const mk2=boxes(mdia.b,mdia.e);
+    const mdhd=mk2.find(x=>x.t==='mdhd'), hdlr=mk2.find(x=>x.t==='hdlr');
+    const ts=dv.getUint32(mdhd.b+(u8[mdhd.b]===1?20:12));
+    tracks[id]={id:id,ts:ts,type:hdlr?str(hdlr.b+8):'',samples:[]};
+    order.push(id);
+  });
+  if(!order.length) return null;
+
+  // örnekleri topla
+  top.filter(x=>x.t==='moof').forEach(mf=>{
+    boxes(mf.b,mf.e).filter(x=>x.t==='traf').forEach(tf=>{
+      const kids=boxes(tf.b,tf.e);
+      const tfhd=kids.find(x=>x.t==='tfhd'); if(!tfhd) return;
+      const fl=dv.getUint32(tfhd.b)&0xffffff, id=dv.getUint32(tfhd.b+4), T=tracks[id]; if(!T) return;
+      let p=tfhd.b+8, baseOff=mf.s, dDur=(trex[id]||{}).dur||0, dSize=(trex[id]||{}).size||0, dFlags=(trex[id]||{}).flags||0;
+      if(fl&1){baseOff=Number(dv.getBigUint64(p));p+=8;}
+      if(fl&2) p+=4;
+      if(fl&8){dDur=dv.getUint32(p);p+=4;}
+      if(fl&0x10){dSize=dv.getUint32(p);p+=4;}
+      if(fl&0x20){dFlags=dv.getUint32(p);p+=4;}
+      let pos=baseOff;
+      kids.filter(x=>x.t==='trun').forEach(tr=>{
+        const ver=u8[tr.b], tf2=dv.getUint32(tr.b)&0xffffff, n=dv.getUint32(tr.b+4);
+        let q=tr.b+8, first=null;
+        if(tf2&1){pos=baseOff+dv.getInt32(q);q+=4;}
+        if(tf2&4){first=dv.getUint32(q);q+=4;}
+        for(let i=0;i<n;i++){
+          let d=dDur,s=dSize,f=dFlags,c=0;
+          if(tf2&0x100){d=dv.getUint32(q);q+=4;}
+          if(tf2&0x200){s=dv.getUint32(q);q+=4;}
+          if(tf2&0x400){f=dv.getUint32(q);q+=4;} else if(i===0&&first!==null){f=first;}
+          if(tf2&0x800){c=ver===1?dv.getInt32(q):dv.getUint32(q);q+=4;}
+          T.samples.push({pos:pos,size:s,dur:d,sync:((f>>16)&1)===0,cto:c});
+          pos+=s;
+        }
+      });
+    });
+  });
+  if(order.every(id=>!tracks[id].samples.length)) return null;
+
+  // parçalar (chunk): her 0.5 sn'lik pencerede her iz için bir parça
+  const WIN=0.5, chunks=[];
+  order.forEach((id,ti)=>{
+    const T=tracks[id]; let dts=0,cur=null;
+    T.chunks=[];
+    T.samples.forEach(s=>{
+      const w=Math.floor(dts/T.ts/WIN);
+      if(!cur||cur.w!==w){cur={w:w,ti:ti,id:id,list:[],bytes:0};chunks.push(cur);T.chunks.push(cur);}
+      cur.list.push(s); cur.bytes+=s.size; dts+=s.dur;
+    });
+    T.total=dts;
+  });
+  chunks.sort((a,b)=>a.w-b.w||a.ti-b.ti);
+
+  const mdatPayload=chunks.reduce((a,c)=>a+c.bytes,0);
+
+  // ftyp
+  const ftyp=mk('ftyp',[new Uint8Array([105,115,111,109]),u32(512),new Uint8Array([105,115,111,109,105,115,111,50,97,118,99,49,109,112,52,49])]);
+
+  // moov oluşturucu (offsetler mdatStart'a bağlı)
+  function buildMoov(mdatStart){
+    let off=mdatStart; chunks.forEach(c=>{c.off=off;off+=c.bytes;});
+    const movTs=(()=>{const mv=boxes(moov.b,moov.e).find(x=>x.t==='mvhd');return dv.getUint32(mv.b+(u8[mv.b]===1?20:12));})();
+    let movDur=0; order.forEach(id=>{const T=tracks[id];movDur=Math.max(movDur,Math.round(T.total/T.ts*movTs));});
+
+    function patchDur(bx,off32,off64,val){
+      const c=u8.slice(bx.s,bx.e), v1=u8[bx.b]===1, base=bx.b-bx.s;
+      if(v1) w64(c,base+off64,val); else w32(c,base+off32,val);
+      return c;
+    }
+    function stbl(T,stsd){
+      const parts=[stsd];
+      // stts
+      const runs=[]; T.samples.forEach(s=>{const l=runs[runs.length-1];if(l&&l[1]===s.dur)l[0]++;else runs.push([1,s.dur]);});
+      const sttsP=new Uint8Array(8+runs.length*8); w32(sttsP,4,runs.length); runs.forEach((r,i)=>{w32(sttsP,8+i*8,r[0]);w32(sttsP,12+i*8,r[1]);});
+      parts.push(mk('stts',[sttsP]));
+      // stss (sadece video ve her kare anahtar değilse)
+      if(T.type==='vide'&&T.samples.some(s=>!s.sync)){
+        const idx=[]; T.samples.forEach((s,i)=>{if(s.sync)idx.push(i+1);});
+        const a=new Uint8Array(8+idx.length*4); w32(a,4,idx.length); idx.forEach((v,i)=>w32(a,8+i*4,v));
+        parts.push(mk('stss',[a]));
+      }
+      // ctts
+      if(T.samples.some(s=>s.cto!==0)){
+        const cr=[]; T.samples.forEach(s=>{const l=cr[cr.length-1];if(l&&l[1]===s.cto)l[0]++;else cr.push([1,s.cto]);});
+        const neg=T.samples.some(s=>s.cto<0);
+        const a=new Uint8Array(8+cr.length*8); a[0]=neg?1:0; w32(a,4,cr.length); cr.forEach((r,i)=>{w32(a,8+i*8,r[0]);w32(a,12+i*8,r[1]);});
+        parts.push(mk('ctts',[a]));
+      }
+      // stsc
+      const sc=[]; T.chunks.forEach((c,i)=>{const n=c.list.length,l=sc[sc.length-1];if(!l||l[1]!==n)sc.push([i+1,n]);});
+      const sa=new Uint8Array(8+sc.length*12); w32(sa,4,sc.length); sc.forEach((r,i)=>{w32(sa,8+i*12,r[0]);w32(sa,12+i*12,r[1]);w32(sa,16+i*12,1);});
+      parts.push(mk('stsc',[sa]));
+      // stsz
+      const za=new Uint8Array(12+T.samples.length*4); w32(za,8,T.samples.length); T.samples.forEach((s,i)=>w32(za,12+i*4,s.size));
+      parts.push(mk('stsz',[za]));
+      // stco
+      const oa=new Uint8Array(8+T.chunks.length*4); w32(oa,4,T.chunks.length); T.chunks.forEach((c,i)=>w32(oa,8+i*4,c.off));
+      parts.push(mk('stco',[oa]));
+      return mk('stbl',parts);
+    }
+    function trak(tr){
+      const kids=boxes(tr.b,tr.e), tkhd=kids.find(x=>x.t==='tkhd');
+      const id=dv.getUint32(tkhd.b+(u8[tkhd.b]===1?20:12)), T=tracks[id];
+      const parts=[];
+      kids.forEach(k=>{
+        if(k.t==='tkhd') parts.push(patchDur(k,20,28,Math.round(T.total/T.ts*movTs)));
+        else if(k.t==='mdia'){
+          const mp=[];
+          boxes(k.b,k.e).forEach(m=>{
+            if(m.t==='mdhd') mp.push(patchDur(m,16,24,T.total));
+            else if(m.t==='minf'){
+              const ip=[];
+              boxes(m.b,m.e).forEach(n=>{
+                if(n.t==='stbl'){
+                  const stsd=boxes(n.b,n.e).find(z=>z.t==='stsd');
+                  ip.push(stbl(T,u8.slice(stsd.s,stsd.e)));
+                } else ip.push(u8.slice(n.s,n.e));
+              });
+              mp.push(mk('minf',ip));
+            } else mp.push(u8.slice(m.s,m.e));
+          });
+          parts.push(mk('mdia',mp));
+        } else parts.push(u8.slice(k.s,k.e));
+      });
+      return mk('trak',parts);
+    }
+    const mp=[];
+    boxes(moov.b,moov.e).forEach(k=>{
+      if(k.t==='mvex') return;
+      if(k.t==='mvhd') mp.push(patchDur(k,16,24,movDur));
+      else if(k.t==='trak') mp.push(trak(k));
+      else mp.push(u8.slice(k.s,k.e));
+    });
+    return mk('moov',mp);
+  }
+
+  let moovBytes=buildMoov(0);
+  const mdatStart=ftyp.length+moovBytes.length+8;
+  if(mdatStart+mdatPayload>0xFFFFFFFF) return null;
+  moovBytes=buildMoov(mdatStart);
+
+  const total=ftyp.length+moovBytes.length+8+mdatPayload;
+  const out=new Uint8Array(total);
+  let p=0; out.set(ftyp,p);p+=ftyp.length; out.set(moovBytes,p);p+=moovBytes.length;
+  w32(out,p,8+mdatPayload); out[p+4]=109;out[p+5]=100;out[p+6]=97;out[p+7]=116; p+=8;
+  chunks.forEach(c=>c.list.forEach(s=>{out.set(u8.subarray(s.pos,s.pos+s.size),p);p+=s.size;}));
+  return out;
+}
+
+let outBlob=null,outExt='mp4';
+async function run(){
+  const info=$('info'),btn=$('go');
+  if(!srcFile){info.textContent='Önce bir video seç.';return;}
+  btn.disabled=true;
+  let ac,wl,url;
+  try{
+    await fontsReady();
+    const handle=($('handle').value.trim()||'vegittikadin').replace(/^@/,'');
+    const spoken=$('spoken').value.trim();
+    const th=THEMES[$('theme').value]||THEMES.bordo, mode=$('fitmode').value;
+
+    let tts=null;
+    if(spoken){
+      info.textContent='⏳ Kadın sesi hazırlanıyor…';
+      tts=await ttsSeg(spoken,$('voiceName').value,()=>{info.textContent='⏳ Yapay zeka yoğun, tekrar deniyorum…';});
+    }
+
+    url=URL.createObjectURL(srcFile);
+    const vid=document.createElement('video');
+    vid.playsInline=true; vid.preload='auto'; vid.src=url;
+    await new Promise((res,rej)=>{vid.onloadedmetadata=res;vid.onerror=()=>rej(new Error('Video açılamadı'));});
+    const dur=vid.duration||0;
+
+    ac=new (window.AudioContext||window.webkitAudioContext)(); await ac.resume();
+    const dest=ac.createMediaStreamDestination();
+    const srcNode=ac.createMediaElementSource(vid); srcNode.connect(dest);
+
+    const vc=$('vc'),vx=vc.getContext('2d');
+    $('rv').style.display='none'; vc.style.display='block'; $('btns').style.display='none';
+    const mime=pickMime();
+    const stream=new MediaStream([...vc.captureStream(30).getVideoTracks(),...dest.stream.getAudioTracks()]);
+    const rec=new MediaRecorder(stream,mime?{mimeType:mime,videoBitsPerSecond:6000000}:{});
+    const chunks=[]; rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
+    const stopped=new Promise(r=>{rec.onstop=r;});
+    try{ if(navigator.wakeLock) wl=await navigator.wakeLock.request('screen'); }catch(e){}
+
+    const frameVideo=()=>{drawBase(vx,th);drawVideo(vx,vid,mode);drawPill(vx,handle);drawGold(vx,performance.now()/1000);};
+    frameVideo();
+    rec.start(250);
+    let ended=false; vid.onended=()=>{ended=true;};
+    await vid.play();
+
+    // 1) video bölümü
+    await new Promise(res=>{
+      const loop=()=>{
+        frameVideo();
+        const el=vid.currentTime;
+        info.textContent='🎬 Video kaydediliyor… %'+Math.min(100,Math.round(el/(dur||1)*100));
+        if(ended||vid.ended||(dur&&el>=dur-0.05)){res();return;}
+        setTimeout(loop,33);
+      };
+      loop();
+    });
+
+    // 2) kapanış: takip et
+    info.textContent='🎬 Kapanış ekleniyor…';
+    const t0=ac.currentTime, aStart=0.45;
+    let outroLen=3.2;
+    if(tts){
+      const ab=ac.createBuffer(1,tts.f.length,tts.rate); ab.copyToChannel(tts.f,0);
+      const s=ac.createBufferSource(); s.buffer=ab; s.connect(dest); s.start(t0+aStart);
+      outroLen=Math.max(3.2,aStart+tts.f.length/tts.rate+1.3);
+    }
+    await new Promise(res=>{
+      const loop=()=>{
+        const el=ac.currentTime-t0;
+        const oa=Math.min(1,Math.max(0,el/0.45));
+        drawBase(vx,th);
+        vx.save(); vx.globalAlpha=1-oa; drawVideo(vx,vid,mode); drawPill(vx,handle); vx.restore();
+        drawOutro(vx,th,handle,oa,(1-oa)*30);
+        drawGold(vx,performance.now()/1000);
+        if(el>=outroLen){res();return;}
+        setTimeout(loop,33);
+      };
+      loop();
+    });
+
+    rec.stop(); await stopped;
+    const type=(rec.mimeType||mime||'video/webm').split(';')[0];
+    outExt=type.indexOf('mp4')>-1?'mp4':'webm';
+    outBlob=new Blob(chunks,{type});
+    let fixNote='';
+    if(outExt==='mp4'){
+      try{
+        info.textContent='🔧 Video dosyası düzeltiliyor…';
+        const fixed=fmp4ToMp4(await outBlob.arrayBuffer());
+        if(fixed){ outBlob=new Blob([fixed],{type:'video/mp4'}); fixNote='düzeltildi'; }
+        else fixNote='düzeltme yapılamadı (dosya biçimi tanınmadı)';
+      }catch(e){ fixNote='düzeltme hatası: '+(e.message||e); }
+    }
+    const rv=$('rv'); rv.src=URL.createObjectURL(outBlob);
+    rv.style.display='block'; vc.style.display='none'; $('btns').style.display='flex';
+    const secs=await new Promise(res=>{const tv=document.createElement('video');tv.preload='metadata';tv.onloadedmetadata=()=>res(isFinite(tv.duration)?tv.duration:0);tv.onerror=()=>res(0);tv.src=URL.createObjectURL(outBlob);});
+    const durTxt=secs?(' · '+secs.toFixed(1)+' sn'):'';
+    info.textContent=outExt==='mp4'
+      ?'✅ Video hazır (mp4'+(fixNote?', '+fixNote:'')+durTxt+'). İndirip Instagram\'da Reels olarak paylaşabilirsin.'
+      :'✅ Video hazır (webm). Instagram webm\'i kabul etmezse videoyu CapCut veya InShot ile açıp mp4 olarak kaydet.';
+  }catch(err){
+    info.textContent='Video yapılamadı: '+(err.message||err.code||err);
+  }finally{
+    btn.disabled=false;
+    try{ if(ac) ac.close(); }catch(e){}
+    try{ if(wl) wl.release(); }catch(e){}
+    try{ if(url) URL.revokeObjectURL(url); }catch(e){}
+  }
+}
+$('go').onclick=run;
+$('dl').onclick=()=>{if(!outBlob)return;const a=document.createElement('a');a.href=URL.createObjectURL(outBlob);a.download='cerceveli-video-'+Date.now()+'.'+outExt;a.click();};
+$('sh').onclick=async()=>{
+  if(!outBlob)return;
+  const f=new File([outBlob],'cerceveli-video.'+outExt,{type:outBlob.type});
+  if(navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f]});}catch(e){}}
+  else $('dl').click();
+};
+
+// ---------- Videoya göre Instagram açıklaması ----------
+const TEXT_MODELS=['gemini-3.8-flash','gemini-3.5-flash-lite','gemini-3.1-flash-lite','gemini-2.5-flash'];
+async function extractFrames(file,n){
+  const url=URL.createObjectURL(file);
+  try{
+    const v=document.createElement('video'); v.muted=true; v.playsInline=true; v.preload='auto'; v.src=url;
+    await new Promise((res,rej)=>{v.onloadedmetadata=res;v.onerror=()=>rej(new Error('Video açılamadı'));});
+    if(!isFinite(v.duration)){ v.currentTime=1e7; await new Promise(r=>{v.ontimeupdate=()=>{v.ontimeupdate=null;r();};}); }
+    const dur=v.duration||1, c=document.createElement('canvas'), k=Math.min(1,512/Math.max(v.videoWidth,v.videoHeight));
+    c.width=Math.round(v.videoWidth*k); c.height=Math.round(v.videoHeight*k);
+    const x=c.getContext('2d'), out=[];
+    for(let i=1;i<=n;i++){
+      v.currentTime=dur*i/(n+1);
+      await new Promise(r=>{v.onseeked=()=>{v.onseeked=null;r();};});
+      x.drawImage(v,0,0,c.width,c.height);
+      out.push(c.toDataURL('image/jpeg',0.7).split(',')[1]);
+    }
+    return out;
+  } finally { URL.revokeObjectURL(url); }
+}
+async function callCaptionAI(frames,note,handle){
+  await getAI();
+  const prompt='Bu görseller bir Instagram Reels videosundan sırayla alınmış '+frames.length+' kare. Sayfa: @'+handle+'.\n'+
+  'Önce karelerdeki ekran yazılarını (alt yazı, söz, metin) sırayla oku. Sonra videoya, doğrudan Instagram\'a yapıştırılıp paylaşılabilecek Türkçe bir açıklama yaz. '+
+  'Açıklamayı alt yazıların duygusundan ve anlamından esinleyerek kur; alt yazıları aynen kopyalama, istersen en fazla 3-4 kelimelik tek bir alıntı kullan.\n'+
+  'Biçim: 1) Dikkat çeken kısa bir ilk satır. 2) 2-4 satır samimi gövde. 3) "Daha fazlası için @'+handle+' sayfasını takip et" çağrısı. 4) En sonda 8-12 alakalı hashtag.\n'+
+  'Kurallar: Düz metin yaz; yıldız, markdown, başlık ya da "Açıklama:" gibi etiket kullanma. Emojiyi ölçülü kullan. Karelerde görmediğin bir şeyi uydurma; kişi adı, yer veya yaş tahmin etme. Ekranda yazı yoksa görüntünün havasından yola çık. Sadece açıklama metnini döndür.'+
+  (note?('\nSayfa sahibinin notu (doğru kabul et): '+note):'');
+  const parts=[prompt,...frames.map(d=>({inlineData:{data:d,mimeType:'image/jpeg'}}))];
+  let last;
+  for(let round=0;round<2;round++){
+    for(const mn of TEXT_MODELS){
+      try{
+        const model=AI_I.getGenerativeModel(AI_ai,{model:mn});
+        const r=await Promise.race([model.generateContent(parts),timeout(45000)]);
+        const t=(r.response.text()||'').replace(/\*\*/g,'').replace(/^\s*(Açıklama|Caption)\s*:\s*/i,'').trim();
+        if(t) return t;
+        last=new Error('Boş yanıt');
+      }catch(e){last=e;}
+    }
+    if(round===0){ $('capInfo').textContent='⏳ Yapay zeka yoğun, tekrar deniyorum…'; await sleep(2500); }
+  }
+  throw last;
+}
+let capBusy=false;
+async function writeCaption(){
+  if(capBusy) return;
+  if(!srcFile){$('capInfo').textContent='Önce bir video seç.';return;}
+  capBusy=true; $('capBtn').disabled=true;
+  const info=$('capInfo');
+  try{
+    info.textContent='⏳ Video kareleri okunuyor…';
+    const frames=await extractFrames(srcFile,12);
+    info.textContent='⏳ Açıklama yazılıyor…';
+    const handle=($('handle').value.trim()||'vegittikadin').replace(/^@/,'');
+    const txt=await callCaptionAI(frames,$('note').value.trim(),handle);
+    $('caption').value=txt;
+    info.textContent='✅ Hazır. Okuyup istediğin gibi düzenleyebilirsin.';
+  }catch(err){
+    info.textContent='Açıklama yazılamadı: '+(err.message||err.code||err);
+  }finally{ capBusy=false; $('capBtn').disabled=false; }
+}
+$('capBtn').onclick=writeCaption;
+$('capCopy').onclick=async()=>{
+  try{await navigator.clipboard.writeText($('caption').value);}catch(e){$('caption').select();document.execCommand('copy');}
+  $('capCopy').textContent='Kopyalandı'; setTimeout(()=>$('capCopy').textContent='Kopyala',1600);
+};
+
+// ilk görünüm
+fontsReady().then(()=>{
+  const vx=$('vc').getContext('2d'),th=THEMES[$('theme').value]||THEMES.bordo;
+  const handle=($('handle').value.trim()||'vegittikadin').replace(/^@/,'');
+  drawBase(vx,th);
+  vx.save(); vx.beginPath(); vx.roundRect(INS,INS,W-2*INS,H-2*INS,RAD); vx.fillStyle='#000'; vx.fill(); vx.restore();
+  drawPill(vx,handle); drawGold(vx,0.9);
+});
+</script>
+</body>
+</html>
